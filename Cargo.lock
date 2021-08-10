@@ -8,7 +8,7 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "ourglass"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lazy_static",
  "winres",
@@ -42,5 +42,3 @@ dependencies = [
 [[package]]
 name = "winsafe"
 version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3ca120a7608493db3153efd75fd659b3fee45d3863b931de7405173025e79cf"
