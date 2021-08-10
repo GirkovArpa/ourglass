@@ -9,24 +9,34 @@ use winsafe::{
   WinResult, 
   COLORREF, 
   HBRUSH,
-  IdIdiStr
+  IdIdiStr,
+  QueryPerformanceCounter, 
+  QueryPerformanceFrequency
 };
 
 use lazy_static::lazy_static; 
 use std::sync::Mutex;
 
-const EDIT_WIDTH: i32 = 166;
 const EDIT_HEIGHT: i32 = 24;
 const EDIT2_HEIGHT: i32 = 16;
 
 lazy_static! {
   static ref ELAPSED_MILLISECONDS: Mutex<i32> = Mutex::new(0);
   static ref TARGET_MILLISECONDS: Mutex<i32> = Mutex::new(2500);
+
+  static ref IS_PAUSED: Mutex<bool> = Mutex::new(false);
   static ref IS_TICKING: Mutex<bool> = Mutex::new(false);
   static ref IS_HOVERING_LABEL: Mutex<bool> = Mutex::new(false);
+
   static ref EDIT_OUTLINE: Mutex<RECT> = Mutex::new(RECT { left: 0, top: 0, right: 0, bottom: 0 });
   static ref EDIT2_OUTLINE: Mutex<RECT> = Mutex::new(RECT { left: 0, top: 0, right: 0, bottom: 0 });
+
   static ref THICKNESS: Mutex<i32> = Mutex::new(13);
+  static ref SPACE: Mutex<i32> = Mutex::new(20);
+  static ref EDIT_WIDTH: Mutex<i32> = Mutex::new(166);
+  
+  static ref FREQ: Mutex<i64> = Mutex::new(0);
+  static ref START: Mutex<i64> = Mutex::new(0);
 }
 
 #[derive(Clone)]
@@ -44,7 +54,7 @@ impl MyWindow {
         gui::WindowMainOpts {
           title: "OurGlass".to_owned(),
           class_icon: hinstance.LoadIcon(IdIdiStr::Id(1)).unwrap(),
-          size: SIZE::new(234, 111),
+          size: SIZE::new(334, 111),
           style: gui::WindowMainOpts::default().style 
           | co::WS::MINIMIZEBOX 
           | co::WS::MAXIMIZEBOX 
@@ -99,20 +109,45 @@ impl MyWindow {
     }
 
     fn events(&self) {
+      self.wnd.on().wm_close({
+        let self2 = self.clone();
+        move || {
+          if *IS_TICKING.lock().unwrap() || *IS_PAUSED.lock().unwrap() {
+          let answer = self2.wnd.hwnd().MessageBox(
+            "Are you sure you want to close this timer window?",
+            "OurGlass",
+            winsafe::co::MB::YESNO | winsafe::co::MB::ICONQUESTION,
+          ).unwrap();
+
+          if answer == winsafe::co::DLGID::YES {
+            self2.wnd.hwnd().DestroyWindow();
+          };
+          } else {
+            self2.wnd.hwnd().DestroyWindow();
+          }
+        }
+      });
+
       self.wnd.on().wm_timer(1, {
           let self2 = self.clone();
           move || {
+            let is_ticking = *IS_TICKING.lock().unwrap();
+            if !is_ticking {
+              return;
+            }
+
+            *ELAPSED_MILLISECONDS.lock().unwrap() += get_counter();
             let elapsed_milliseconds = *ELAPSED_MILLISECONDS.lock().unwrap();
             let target_milliseconds = *TARGET_MILLISECONDS.lock().unwrap();
-            let is_ticking = *IS_TICKING.lock().unwrap();
 
-            if elapsed_milliseconds < target_milliseconds && is_ticking {
-              *ELAPSED_MILLISECONDS.lock().unwrap() += 10;
-              self2.wnd.hwnd().InvalidateRect(None, false).unwrap();
-            } else if elapsed_milliseconds == target_milliseconds && is_ticking {
+            if elapsed_milliseconds <= target_milliseconds {
+            } else if elapsed_milliseconds >= target_milliseconds {
               self2.lbl.set_text("Restart").unwrap();
               *IS_TICKING.lock().unwrap() = false;
             }
+
+            self2.wnd.hwnd().InvalidateRect(None, false).unwrap();
+            start_counter();
           }
       });
 
@@ -124,6 +159,11 @@ impl MyWindow {
           let width = client_area.cx;
           let height = client_area.cy;
           *THICKNESS.lock().unwrap() = ((width.min(height) as f32 / 15_f32) as i32).max(13).min(32);
+          *SPACE.lock().unwrap() = (*THICKNESS.lock().unwrap() as f32 * 1.55) as i32;
+          
+          *EDIT_WIDTH.lock().unwrap() = width - (*SPACE.lock().unwrap() * 2 + *THICKNESS.lock().unwrap() * 2);
+          let edit_width = *EDIT_WIDTH.lock().unwrap();
+
           let x = width / 2;
           let y = height / 2;
           self2.lbl.set_text(&self2.lbl.text().unwrap()).unwrap();
@@ -137,23 +177,23 @@ impl MyWindow {
           ).unwrap();
           self2.edt.hwnd().SetWindowPos(
             winsafe::HwndPlace::Hwnd(self2.wnd.hwnd()), 
-            x - EDIT_WIDTH / 2, 
+            x - edit_width / 2, 
             y - EDIT_HEIGHT / 2 + 1, 
-            EDIT_WIDTH, 
+            edit_width, 
             EDIT_HEIGHT, 
             winsafe::co::SWP::NOZORDER
           ).unwrap();
           self2.edt2.hwnd().SetWindowPos(
             winsafe::HwndPlace::Hwnd(self2.wnd.hwnd()), 
-            x - EDIT_WIDTH / 2, 
+            x - edit_width / 2, 
             y - EDIT_HEIGHT / 2 + 1 - 19, 
-            EDIT_WIDTH, 
+            edit_width, 
             EDIT2_HEIGHT, 
             winsafe::co::SWP::NOZORDER
           ).unwrap();
-          let left = x - EDIT_WIDTH / 2 - 1;
+          let left = x - edit_width / 2 - 1;
           let top = y - EDIT_HEIGHT / 2;
-          let right = left + EDIT_WIDTH + 2;
+          let right = left + edit_width + 2;
           let bottom = top + EDIT_HEIGHT + 2;
           let edit_outline = RECT { 
             left: left,
@@ -162,9 +202,9 @@ impl MyWindow {
             bottom: bottom
           };
           *EDIT_OUTLINE.lock().unwrap() = edit_outline;
-          let left = x - EDIT_WIDTH / 2 - 1;
+          let left = x - edit_width / 2 - 1;
           let top = (y - EDIT_HEIGHT / 2 + 1) - 19 - 1;
-          let right = left + EDIT_WIDTH + 2;
+          let right = left + edit_width + 2;
           let bottom = top + EDIT2_HEIGHT + 2;
           let edit2_outline = RECT { 
             left: left,
@@ -189,20 +229,26 @@ impl MyWindow {
               let num_f32 = num_str.parse::<f32>().unwrap();
               let target_milliseconds = (num_f32 * 1000_f32) as i32;
               *TARGET_MILLISECONDS.lock().unwrap() = target_milliseconds;
+              start_counter();
               self2.wnd.hwnd().SetTimer(1, 10, None).unwrap();
+              *IS_PAUSED.lock().unwrap() = false;
               "Pause"
             },
             "Pause" => {
               *IS_TICKING.lock().unwrap() = false;
+              *IS_PAUSED.lock().unwrap() = true;
               "Resume"
             },
             "Resume" => {
               *IS_TICKING.lock().unwrap() = true;
+              start_counter();
+              *IS_PAUSED.lock().unwrap() = false;
               "Pause"
             },
             "Restart" => {
               *IS_TICKING.lock().unwrap() = true;
               *ELAPSED_MILLISECONDS.lock().unwrap() = 0;
+              start_counter();
               "Pause"
             },
             _ => unreachable!()
@@ -218,25 +264,37 @@ impl MyWindow {
           let text = match lbl.text().unwrap().as_ref() {
             "Start" => { 
               *IS_TICKING.lock().unwrap() = true;
+              let text = &self2.edt.text().unwrap().to_owned();
+              let mut parts = text.split_whitespace();
+              let num_str = parts.next().unwrap();
+              let num_f32 = num_str.parse::<f32>().unwrap();
+              let target_milliseconds = (num_f32 * 1000_f32) as i32;
+              *TARGET_MILLISECONDS.lock().unwrap() = target_milliseconds;
+              start_counter();
               self2.wnd.hwnd().SetTimer(1, 10, None).unwrap();
+              *IS_PAUSED.lock().unwrap() = false;
               "Pause"
             },
             "Pause" => {
               *IS_TICKING.lock().unwrap() = false;
+              *IS_PAUSED.lock().unwrap() = true;
               "Resume"
             },
             "Resume" => {
               *IS_TICKING.lock().unwrap() = true;
+              start_counter();
+              *IS_PAUSED.lock().unwrap() = false;
               "Pause"
             },
             "Restart" => {
               *IS_TICKING.lock().unwrap() = true;
               *ELAPSED_MILLISECONDS.lock().unwrap() = 0;
+              start_counter();
               "Pause"
             },
             _ => unreachable!()
           };
-        self2.lbl.set_text(text).unwrap();
+          self2.lbl.set_text(text).unwrap();
         }
       });
 
@@ -249,6 +307,7 @@ impl MyWindow {
           }
           let white = COLORREF::new(0xff, 0xff, 0xff);
           let white_brush = HBRUSH::CreateSolidBrush(white).unwrap();
+          white_brush.DeleteObject().unwrap();
           white_brush
         }
       });
@@ -264,6 +323,8 @@ impl MyWindow {
           let text_color = if *IS_HOVERING_LABEL.lock().unwrap() { red } else { blue_text_color };
           params.hdc.SetTextColor(text_color).unwrap();
           params.hdc.SetBkMode(winsafe::co::BKMODE::TRANSPARENT).unwrap();
+
+          red_brush.DeleteObject().unwrap();
           white_brush
         }
       });
@@ -322,6 +383,10 @@ impl MyWindow {
           hdc.FillRect(edit2_outline, brush).unwrap();
 
           self2.wnd.hwnd().EndPaint(&ps);
+
+          grey_brush.DeleteObject().unwrap();
+          orange_brush.DeleteObject().unwrap();
+          brush.DeleteObject().unwrap();
         }
       });
     }
@@ -393,4 +458,13 @@ fn calculate_progress_bars(client_rect: RECT, progress_width: i32) -> (RECT, REC
   };
 
   (top_bar, left_bar, bottom_bar, right_bar)
+}
+
+fn start_counter() -> () {
+  *FREQ.lock().unwrap() = QueryPerformanceFrequency().unwrap();
+  *START.lock().unwrap()  = QueryPerformanceCounter().unwrap();
+}
+
+fn get_counter() -> i32 {
+  (((QueryPerformanceCounter().unwrap() - *START.lock().unwrap()) as f64 / *FREQ.lock().unwrap() as f64) * 1000.0) as i32
 }
