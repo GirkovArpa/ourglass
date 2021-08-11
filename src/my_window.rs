@@ -2,6 +2,8 @@
 use winsafe::{
   co, 
   gui,
+  shell,
+  CoCreateInstance,
   HINSTANCE, 
   RECT, 
   PAINTSTRUCT, 
@@ -52,7 +54,8 @@ pub struct MyWindow {
     lbl: gui::Label,
     lbl2: gui::Label,
     edt: gui::Edit,
-    edt2: gui::Edit
+    edt2: gui::Edit,
+    tskbr: shell::ITaskbarList3
 }
 
 impl MyWindow {
@@ -118,7 +121,15 @@ impl MyWindow {
         } 
       );
 
-      let new_self = Self { wnd, lbl, lbl2, edt, edt2 };
+      winsafe::CoInitializeEx(co::COINIT::MULTITHREADED).unwrap();
+
+      let tskbr: shell::ITaskbarList3 = CoCreateInstance(
+        &shell::clsid::TaskbarList,
+        None,
+        co::CLSCTX::INPROC_SERVER,
+      ).unwrap();
+
+      let new_self = Self { wnd, lbl, lbl2, edt, edt2, tskbr };
       new_self.events();
       new_self
     }
@@ -167,6 +178,10 @@ impl MyWindow {
             let elapsed_milliseconds = *ELAPSED_MILLISECONDS.lock().unwrap();
             let target_milliseconds = *TARGET_MILLISECONDS.lock().unwrap();
 
+            let percent = ((elapsed_milliseconds as f32 / target_milliseconds as f32) * 100.) as u64;
+
+            self2.tskbr.SetProgressValue(self2.wnd.hwnd(), percent, 100).unwrap();
+
             if elapsed_milliseconds <= target_milliseconds {
 
             } else if elapsed_milliseconds >= target_milliseconds && !*TIME_IS_UP.lock().unwrap() {
@@ -176,6 +191,7 @@ impl MyWindow {
               self2.lbl2.set_text("Close").unwrap();
               reposition_labels(&self2);
               *IS_TICKING.lock().unwrap() = false;
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::ERROR).unwrap();
             }
 
             self2.wnd.hwnd().InvalidateRect(None, false).unwrap();
@@ -221,21 +237,25 @@ impl MyWindow {
               self2.wnd.hwnd().SetTimer(1, 10, None).unwrap();
               *IS_PAUSED.lock().unwrap() = false;
               self2.lbl2.hwnd().ShowWindow(winsafe::co::SW::SHOW);
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::NORMAL).unwrap();
               "Pause"
             },
             "Pause" => {
               *IS_TICKING.lock().unwrap() = false;
               *IS_PAUSED.lock().unwrap() = true;
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::PAUSED).unwrap();
               "Resume"
             },
             "Resume" => {
               *IS_TICKING.lock().unwrap() = true;
               start_counter();
               *IS_PAUSED.lock().unwrap() = false;
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::NORMAL).unwrap();
               "Pause"
             },
             "Reset" => {
               reset(&self2);
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::NORMAL).unwrap();
               "Start"
             },
             _ => unreachable!()
@@ -265,21 +285,25 @@ impl MyWindow {
               self2.wnd.hwnd().SetTimer(1, 10, None).unwrap();
               *IS_PAUSED.lock().unwrap() = false;
               self2.lbl2.hwnd().ShowWindow(winsafe::co::SW::SHOW);
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::NORMAL).unwrap();
               "Pause"
             },
             "Pause" => {
               *IS_TICKING.lock().unwrap() = false;
               *IS_PAUSED.lock().unwrap() = true;
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::PAUSED).unwrap();
               "Resume"
             },
             "Resume" => {
               *IS_TICKING.lock().unwrap() = true;
               start_counter();
               *IS_PAUSED.lock().unwrap() = false;
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::NORMAL).unwrap();
               "Pause"
             },
             "Reset" => {
               reset(&self2);
+              self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::NORMAL).unwrap();
               "Start"
             },
             _ => unreachable!()
@@ -614,6 +638,8 @@ fn reposition_edits(self2: &MyWindow) -> () {
 }
 
 fn reset(self2: &MyWindow) -> () {
+  self2.tskbr.SetProgressValue(self2.wnd.hwnd(), 0, 100).unwrap();
+
   *ELAPSED_MILLISECONDS.lock().unwrap() = 0;
   *TARGET_MILLISECONDS.lock().unwrap() = 0;
 
