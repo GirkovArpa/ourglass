@@ -17,6 +17,7 @@ use winsafe::{
   QueryPerformanceFrequency
 };
 
+
 use lazy_static::lazy_static; 
 use std::sync::Mutex;
 
@@ -30,9 +31,9 @@ lazy_static! {
   static ref FLASH_START: Mutex<u128> = Mutex::new(0);
 
   static ref ELAPSED_MILLISECONDS: Mutex<i32> = Mutex::new(0);
-  static ref TARGET_MILLISECONDS: Mutex<i32> = Mutex::new(2500);
+  static ref TARGET_MILLISECONDS: Mutex<i32> = Mutex::new(1000);
 
-  static ref LAST_TARGET: Mutex<String> = Mutex::new("2.5 Seconds".to_string());
+  static ref LAST_TARGET: Mutex<String> = Mutex::new("1 Seconds".to_string());
 
   static ref IS_PAUSED: Mutex<bool> = Mutex::new(false);
   static ref IS_TICKING: Mutex<bool> = Mutex::new(false);
@@ -114,7 +115,7 @@ impl MyWindow {
       let edt = gui::Edit::new(
         &wnd,
         gui::EditOpts {
-          text: "2.5 Seconds".to_owned(),
+          text: "1 Second".to_owned(),
           width: 200,
           position: POINT::new(234 / 2, 111 / 1),
           edit_style: co::ES::CENTER,
@@ -410,9 +411,21 @@ impl MyWindow {
           let remaining = now - flash_start;
 
           let theme_color = if time_is_up && remaining <= 255 * 3 {
-            let flash: u8 = (now % 255) as u8;
+            let flash = (now % 255) as u8;
             let flash = ((flash_start + flash as u128) % 255) as u8;
-            COLORREF::new(flash, flash, flash)
+            let fraction = flash as f32 / 255.0;
+            lerp_color(String::from("#ff7f50"), String::from("#C65150"), fraction)         
+          } else if time_is_up && remaining > 255 * 3 {
+            let flash = (now % 4080) as f32;
+            let flash = ((flash_start + flash as u128) % 4080) as f32;
+            let fraction = flash as f32 / 4080.0;
+            let fraction = fraction * 2.0;
+            let fraction = if fraction > 1.0 {
+              2.0 - fraction
+            } else {
+              fraction
+            };
+            lerp_color(String::from("#ff7f50"), String::from("#C65150"), fraction)    
           } else {
             orange_color
           };
@@ -469,6 +482,11 @@ impl MyWindow {
 
 fn calculate_grey_bars(client_rect: RECT, progress_width: i32) -> (RECT, RECT, RECT, RECT) {
   let thickness = *THICKNESS.lock().unwrap();
+  let progress_width = if *IS_TICKING.lock().unwrap() || *IS_PAUSED.lock().unwrap() {
+    progress_width
+  } else {
+    client_rect.right
+  };
 
   let top_bar = RECT { 
     top: 0, 
@@ -682,4 +700,14 @@ fn reset(self2: &MyWindow) -> () {
 
   reposition_labels(&self2);
   self2.wnd.hwnd().InvalidateRect(None, true).unwrap();
+}
+
+fn lerp_color(a: String, b: String, fraction: f32) -> COLORREF {
+  use bracket_color::prelude::*;
+
+  let a = RGB::from_hex(a).unwrap();
+  let b =  RGB::from_hex(b).unwrap();
+  let c = a.lerp(b, fraction);
+
+  COLORREF::new((c.r * 255.0) as u8, (c.g * 255.0) as u8, (c.b * 255.0) as u8)
 }

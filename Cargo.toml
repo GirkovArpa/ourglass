@@ -1,12 +1,13 @@
 [package]
 name = "ourglass"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["GirkovArpa <girkovarpa@protonmail.com>"]
 edition = "2018"
 
 [dependencies]
 winsafe = { path = "../winsafe", features = ["shell"] }
 lazy_static = "*"
+bracket-color = "0.8.2"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
@@ -16,4 +17,4 @@ OriginalFilename = "OurGlass.exe"
 LegalCopyright = "Copyright © 2021 Girkov Arpa, 2018 Chris Dziemborowicz"
 FileDescription = "Tiny timer for Windows."
 ProductName = "OurGlass"
-ProductVersion = "0.4.0"
+ProductVersion = "0.5.0"

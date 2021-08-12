@@ -9,6 +9,8 @@
 <h5 align="center">
   <img src="screenshot.gif" alt="screenshot" /></a>
   <br>
+   <img src="screenshot_taskbar.gif" alt="screenshot" /></a>
+  <br>
   <i>Rust port of <a href="https://github.com/dziemborowicz/hourglass">Hourglass</a></i>
 </h5>
 
