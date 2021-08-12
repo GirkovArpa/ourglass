@@ -27,6 +27,8 @@ lazy_static! {
   static ref FREQ: Mutex<i64> = Mutex::new(0);
   static ref START: Mutex<i64> = Mutex::new(0);
 
+  static ref FLASH_START: Mutex<u128> = Mutex::new(0);
+
   static ref ELAPSED_MILLISECONDS: Mutex<i32> = Mutex::new(0);
   static ref TARGET_MILLISECONDS: Mutex<i32> = Mutex::new(2500);
 
@@ -169,6 +171,11 @@ impl MyWindow {
       self.wnd.on().wm_timer(1, {
           let self2 = self.clone();
           move || {
+            let time_is_up = *TIME_IS_UP.lock().unwrap();
+            if time_is_up {
+              self2.wnd.hwnd().InvalidateRect(None, false).unwrap();
+            }
+
             let is_ticking = *IS_TICKING.lock().unwrap();
             if !is_ticking {
               return;
@@ -192,6 +199,10 @@ impl MyWindow {
               reposition_labels(&self2);
               *IS_TICKING.lock().unwrap() = false;
               self2.tskbr.SetProgressState(self2.wnd.hwnd(), winsafe::shell::co::TBPF::ERROR).unwrap();
+              *FLASH_START.lock().unwrap() = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
             }
 
             self2.wnd.hwnd().InvalidateRect(None, false).unwrap();
@@ -388,8 +399,25 @@ impl MyWindow {
           hdc.FillRect(left_bar, grey_brush).unwrap();
           hdc.FillRect(right_bar, grey_brush).unwrap();
 
-          let orange = COLORREF::new(0xff, 0x7f, 0x50);
-          let orange_brush = HBRUSH::CreateSolidBrush(orange).unwrap();
+          let orange_color = COLORREF::new(0xff, 0x7f, 0x50);
+
+          let now: u128 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+                      
+          let flash_start = *FLASH_START.lock().unwrap();
+          let remaining = now - flash_start;
+
+          let theme_color = if time_is_up && remaining <= 255 * 3 {
+            let flash: u8 = (now % 255) as u8;
+            let flash = ((flash_start + flash as u128) % 255) as u8;
+            COLORREF::new(flash, flash, flash)
+          } else {
+            orange_color
+          };
+
+          let theme_brush = HBRUSH::CreateSolidBrush(theme_color).unwrap();
 
           let (
             top_bar, 
@@ -398,10 +426,10 @@ impl MyWindow {
             right_bar
           ) = calculate_progress_bars(rect, progress_width);
 
-          hdc.FillRect(bottom_bar, orange_brush).unwrap();
-          hdc.FillRect(top_bar, orange_brush).unwrap();
-          hdc.FillRect(left_bar, orange_brush).unwrap();
-          if progress_width >= rect.right - thickness { hdc.FillRect(right_bar, orange_brush).unwrap(); }
+          hdc.FillRect(bottom_bar, theme_brush).unwrap();
+          hdc.FillRect(top_bar, theme_brush).unwrap();
+          hdc.FillRect(left_bar, theme_brush).unwrap();
+          if progress_width >= rect.right - thickness { hdc.FillRect(right_bar, theme_brush).unwrap(); }
 
           let (
             top_bar, 
@@ -411,7 +439,7 @@ impl MyWindow {
           ) = calculate_inset_bars(thickness, left_bar, top_bar, right_bar, bottom_bar);
 
           let inset_color = if time_is_up { 
-            orange
+            theme_color
           } else {
             COLORREF::new(0xff, 0xff, 0xff)
           };
@@ -432,7 +460,7 @@ impl MyWindow {
           self2.wnd.hwnd().EndPaint(&ps);
 
           grey_brush.DeleteObject().unwrap();
-          orange_brush.DeleteObject().unwrap();
+          theme_brush.DeleteObject().unwrap();
           brush.DeleteObject().unwrap();
         }
       });
@@ -466,7 +494,7 @@ fn calculate_grey_bars(client_rect: RECT, progress_width: i32) -> (RECT, RECT, R
   let right_bar = RECT { 
     top: thickness, 
     left: client_rect.right - thickness,
-    right: client_rect.right, 
+    right: (client_rect.right - thickness) + (client_rect.right - progress_width), 
     bottom: client_rect.bottom - thickness 
   };
 
