@@ -38,6 +38,9 @@ lazy_static! {
   static ref IS_PAUSED: Mutex<bool> = Mutex::new(false);
   static ref IS_TICKING: Mutex<bool> = Mutex::new(false);
   static ref IS_HOVERING_LABEL: Mutex<bool> = Mutex::new(false);
+  static ref IS_HOVERING_LABEL2: Mutex<bool> = Mutex::new(false);
+  static ref IS_HOVERING_EDIT: Mutex<bool> = Mutex::new(false);
+  static ref IS_HOVERING_EDIT2: Mutex<bool> = Mutex::new(false);
   static ref TIME_IS_UP: Mutex<bool> = Mutex::new(false);
 
   static ref EDIT_OUTLINE: Mutex<RECT> = Mutex::new(RECT { left: 0, top: 0, right: 0, bottom: 0 });
@@ -146,6 +149,7 @@ impl MyWindow {
         let self2 = self.clone(); 
         move |_params| {
           self2.lbl2.hwnd().ShowWindow(winsafe::co::SW::HIDE);
+          self2.wnd.hwnd().SetTimer(2, 10, None).unwrap();
           1
         }
       });
@@ -165,6 +169,69 @@ impl MyWindow {
             };
           } else {
             self2.wnd.hwnd().DestroyWindow();
+          }
+        }
+      });
+
+      self.wnd.on().wm_timer(2, {
+        let self2 = self.clone();
+        move || {
+          let mut cursor_coords = winsafe::GetCursorPos().unwrap();
+          self2.lbl.hwnd().ScreenToClient(&mut cursor_coords).unwrap();
+          let was_hovering_label = *IS_HOVERING_LABEL.lock().unwrap();
+          if cursor_coords.x >=0 && cursor_coords.x <= 50 
+          && cursor_coords.y >=0 && cursor_coords.y <= 20 {
+            *IS_HOVERING_LABEL.lock().unwrap() = true;
+          } else {
+            *IS_HOVERING_LABEL.lock().unwrap() = false;
+          }
+          let is_hovering_label = *IS_HOVERING_LABEL.lock().unwrap();
+          if was_hovering_label != is_hovering_label {
+            self2.lbl.hwnd().InvalidateRect(None, false).unwrap();
+          }
+          // lbl2
+          let mut cursor_coords = winsafe::GetCursorPos().unwrap();
+          self2.lbl2.hwnd().ScreenToClient(&mut cursor_coords).unwrap();
+          let was_hovering_label2 = *IS_HOVERING_LABEL2.lock().unwrap();
+          if cursor_coords.x >=0 && cursor_coords.x <= 50 
+          && cursor_coords.y >=0 && cursor_coords.y <= 20 {
+            *IS_HOVERING_LABEL2.lock().unwrap() = true;
+          } else {
+            *IS_HOVERING_LABEL2.lock().unwrap() = false;
+          }
+          let is_hovering_label2 = *IS_HOVERING_LABEL2.lock().unwrap();
+          if was_hovering_label2 != is_hovering_label2 {
+            self2.lbl2.hwnd().InvalidateRect(None, false).unwrap();
+          }
+          // edt
+          let mut cursor_coords = winsafe::GetCursorPos().unwrap();
+          self2.edt.hwnd().ScreenToClient(&mut cursor_coords).unwrap();
+          let was_hovering_edit = *IS_HOVERING_EDIT.lock().unwrap();
+          let edit_outline = *EDIT_OUTLINE.lock().unwrap();
+          if cursor_coords.x >=0 && cursor_coords.x <= edit_outline.right - edit_outline.left
+          && cursor_coords.y >=0 && cursor_coords.y <= edit_outline.bottom - edit_outline.top {
+            *IS_HOVERING_EDIT.lock().unwrap() = true;
+          } else {
+            *IS_HOVERING_EDIT.lock().unwrap() = false;
+          }
+          let is_hovering_edit = *IS_HOVERING_EDIT.lock().unwrap();
+          if was_hovering_edit != is_hovering_edit {
+            self2.wnd.hwnd().InvalidateRect(None, true).unwrap();
+          }
+          // edt2
+          let mut cursor_coords = winsafe::GetCursorPos().unwrap();
+          self2.edt2.hwnd().ScreenToClient(&mut cursor_coords).unwrap();
+          let was_hovering_edit2 = *IS_HOVERING_EDIT2.lock().unwrap();
+          let edit2_outline = *EDIT2_OUTLINE.lock().unwrap();
+          if cursor_coords.x >=0 && cursor_coords.x <= edit2_outline.right - edit2_outline.left
+          && cursor_coords.y >=0 && cursor_coords.y <= edit2_outline.bottom - edit2_outline.top {
+            *IS_HOVERING_EDIT2.lock().unwrap() = true;
+          } else {
+            *IS_HOVERING_EDIT2.lock().unwrap() = false;
+          }
+          let is_hovering_edit2 = *IS_HOVERING_EDIT2.lock().unwrap();
+          if was_hovering_edit2 != is_hovering_edit2 {
+            self2.wnd.hwnd().InvalidateRect(None, true).unwrap();
           }
         }
       });
@@ -353,14 +420,29 @@ impl MyWindow {
       });
 
       self.wnd.on().wm_ctl_color_static({
+        let self2 = self.clone();
         move |params| { 
-          let blue_text_color = COLORREF::new(0x4b, 0x88, 0xc5);
+          let blue_text_color = COLORREF::new(0x00, 0x66, 0xcc);
           let red = COLORREF::new(0xff, 0x00, 0x00);
           let white = COLORREF::new(0xff, 0xff, 0xff);
           let red_brush = HBRUSH::CreateSolidBrush(red).unwrap();
           let white_brush = HBRUSH::CreateSolidBrush(white).unwrap();
           params.hdc.SelectObjectBrush(red_brush).unwrap();
-          let text_color = if *IS_HOVERING_LABEL.lock().unwrap() { red } else { blue_text_color };
+          let text_color = if params.hwnd == self2.lbl.hwnd() {
+            if *IS_HOVERING_LABEL.lock().unwrap() { 
+              red 
+            } else { 
+              blue_text_color 
+            }
+          } else if params.hwnd == self2.lbl2.hwnd() {
+            if *IS_HOVERING_LABEL2.lock().unwrap() { 
+              red 
+            } else { 
+              blue_text_color 
+            }
+          } else {
+            unreachable!()
+          };
           params.hdc.SetTextColor(text_color).unwrap();
           params.hdc.SetBkMode(winsafe::co::BKMODE::TRANSPARENT).unwrap();
 
@@ -465,10 +547,14 @@ impl MyWindow {
           let edit_outline = *EDIT_OUTLINE.lock().unwrap();
           let color = COLORREF::new(0xb5, 0xcf, 0xe7);
           let brush = HBRUSH::CreateSolidBrush(color).unwrap();
-          hdc.FillRect(edit_outline, brush).unwrap();
+          if *IS_HOVERING_EDIT.lock().unwrap() {
+            hdc.FillRect(edit_outline, brush).unwrap();
+          }
 
           let edit2_outline = *EDIT2_OUTLINE.lock().unwrap();
-          hdc.FillRect(edit2_outline, brush).unwrap();
+          if *IS_HOVERING_EDIT2.lock().unwrap() {
+            hdc.FillRect(edit2_outline, brush).unwrap();
+          }
 
           self2.wnd.hwnd().EndPaint(&ps);
 
@@ -704,10 +790,8 @@ fn reset(self2: &MyWindow) -> () {
 
 fn lerp_color(a: String, b: String, fraction: f32) -> COLORREF {
   use bracket_color::prelude::*;
-
   let a = RGB::from_hex(a).unwrap();
-  let b =  RGB::from_hex(b).unwrap();
+  let b = RGB::from_hex(b).unwrap();
   let c = a.lerp(b, fraction);
-
   COLORREF::new((c.r * 255.0) as u8, (c.g * 255.0) as u8, (c.b * 255.0) as u8)
 }
